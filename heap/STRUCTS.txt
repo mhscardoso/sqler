@@ -1,0 +1,30 @@
+            All structures defined for this work (only heap)
+
+ ___________________________________________________________________
+|                          Header Structure:                        |
+|                                                                   |
+|   Block Size:          UNSIGNED SHORT  H       ----     2 bytes   |
+|   Header Size:         UNSIGNED SHORT  H       ----     2 bytes   |
+|   Register Size:       INTEGER         I       ----     4 bytes   |
+|   Pt Last Register:    INTEGER         I       ----     4 bytes   |
+|   Pt Del  Register:    INTEGER         I       ----     4 bytes   |
+|   Table Name:          CHAR(64)        64s     ----    64 bytes   |
+|   Timestamp created:   CHAR(64)        64s     ----    64 bytes   |
+|   Timestamp updated:   CHAR(64)        64s     ----    64 bytes   |
+| ----------------------------------------------------------------- |
+|   Total:                                              208 bytes   |
+|___________________________________________________________________|
+|                                                                   |
+|                         Register Structure:                       |
+|  Table Name: employee                                             |
+|                                                                   |
+|  Fields:                                                          |
+|   DELETED MARK         UINT16          H       ----     2 bytes   |
+|   age                  INTEGER         I       ----     4 bytes   |
+|   year                 INTEGER         I       ----     4 bytes   |
+|   education            CHAR(9)         9s      ----     9 bytes   |
+|   city                 CHAR(9)         9s      ----     9 bytes   |
+|   gender               CHAR(6)         6s      ----     6 bytes   |
+| ----------------------------------------------------------------- |
+|   Total:                                               34 bytes   |
+|___________________________________________________________________|
