@@ -1,6 +1,7 @@
 import os
 import struct
 from datetime import datetime
+from pprint import pprint
 
 
 class Database:
@@ -47,18 +48,6 @@ class Database:
          f.write(header_block)
 
 
-   def pointer(self, block, register):
-      return struct.pack('HH', block, register)
-
-
-   def punn(self, pointer):
-      return struct.unpack('I', pointer)[0]
-
-
-   def deref(self, pointer_number):
-      return struct.unpack('HH', struct.pack('I', pointer_number))
-
-
    def next_register_pointer(self, block, register):
       if block == 1:
          space = self.BLOCK_SIZE - self.HEADER_SIZE - (self.RECORD_SIZE * register)
@@ -71,9 +60,17 @@ class Database:
       return self.pointer(new_block, new_register)
 
 
-   def write_header(self, last_pointer = None, del_pointer = None):
+   def write_block(self):
+      with open(self.FILENAME, 'ab') as f:
+         block = struct.pack(
+            f'{self.BLOCK_SIZE}s',
+            ''.ljust(self.BLOCK_SIZE, '\x00')[:(self.BLOCK_SIZE)].encode('utf-8')
+         )
 
-      print('inside write header: ')
+         f.write(block)
+
+
+   def write_header(self, last_pointer = None, del_pointer = None):
       header_data = self.read_header()
 
       put_last_pointer = last_pointer if last_pointer is not None else self.pointer(*header_data[3])
@@ -81,7 +78,6 @@ class Database:
 
       table_name        = self.TABLE_NAME.ljust(64, '\x00')[:64]
       timestamp_created = self.created_timestamp().ljust(64, '\x00')[:64]
-      print(timestamp_created)
       timestamp_updated = str(datetime.now()).ljust(64, '\x00')[:64]
 
       with open(self.FILENAME, 'rb+') as f:
@@ -114,13 +110,11 @@ class Database:
       last_pointer = self.last_register_pointer()
       offset = self.calculate_offset(last_pointer)
 
-      print("OFFSET: ", offset)
-
-      put_age = age if age is not None else 0
-      put_year = year if year is not None else 0
+      put_age       = age if age is not None else 0
+      put_year      = year if year is not None else 0
       put_education = education.ljust(9, '\x00')[:9] if education is not None else ''.ljust(9, '\x00')[:9]
-      put_city = city.ljust(9, '\x00')[:9] if city is not None else ''.ljust(9, '\x00')[:9]
-      put_gender = gender.ljust(6, '\x00')[:6] if gender is not None else ''.ljust(6, '\x00')[:6]
+      put_city      = city.ljust(9, '\x00')[:9] if city is not None else ''.ljust(9, '\x00')[:9]
+      put_gender    = gender.ljust(6, '\x00')[:6] if gender is not None else ''.ljust(6, '\x00')[:6]
 
 
       with open(self.FILENAME, 'rb+') as f:
@@ -138,21 +132,87 @@ class Database:
          f.write(register)
 
       next_register = self.next_register_pointer(last_pointer[0], last_pointer[1])
+      if next_register[0] > last_pointer[0]:
+         self.write_block()
+
       self.write_header(last_pointer=next_register)
 
 
-   def last_register_pointer(self):
-      return self.read_header()[3]
+   def read_register(self, pointer):
+      offset = self.calculate_offset(pointer)
+
+      with open(self.FILENAME, 'rb') as f:
+         f.seek(offset)
+
+         register = f.read(self.RECORD_SIZE)
+         data = struct.unpack(self.TABLE_STRUCTURE, register)
+
+         return data
 
 
-   def del_register_pointer(self):
-      return self.read_header()[4]
+   def compare(self, dt1, dt2):
+      if type(dt2) == str or type(dt2) == int:
+         return dt1 == dt2
 
-   def created_timestamp(self):
-      return self.read_header()[6]
+      elif type(dt2) == set:
+         return dt1 in dt2
 
-   def updated_timestamp(self):
-      return self.read_header()[7]
+      return False
+
+
+   def readable_out(self, data):
+      return (
+         data[0],
+         data[1],
+         data[2],
+         data[3].decode('utf-8').rstrip('\x00'),
+         data[4].decode('utf-8').rstrip('\x00'),
+         data[5].decode('utf-8').rstrip('\x00'),
+      )
+
+
+   def read_many_registers(self, age=None, year=None, education=None, city=None, gender=None):
+      # comparables = dict()
+
+      # if age != None:
+      #    comparables['age'] = age
+
+      # if year != None:
+      #    comparables['year'] = year
+
+      # if education != None:
+      #    comparables['education'] = education
+
+      # if city != None:
+      #    comparables['city'] = city
+
+      # if gender != None:
+      #    comparables['gender'] = gender
+
+
+      pointer = struct.unpack('HH', self.pointer(1, 1))
+      first_offset = self.calculate_offset(pointer)
+      last_pointer = self.last_register_pointer()
+
+      table = list()
+
+      with open(self.FILENAME, 'rb') as f:
+         f.seek(first_offset)
+
+         while pointer != last_pointer:
+            register = f.read(self.RECORD_SIZE)
+            data = struct.unpack(self.TABLE_STRUCTURE, register)
+            if data[0] == 1:
+               pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+               continue
+
+            readable_data = self.readable_out(data)
+
+            table.append(readable_data)
+
+            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+
+      return table
 
 
    def calculate_offset(self, pointer, null=False):
@@ -171,7 +231,6 @@ class Database:
          f.seek(0)
          header = f.read(self.HEADER_SIZE)
          unpacked_data = struct.unpack(self.HEADER_STRUCTURE, header)
-         print("From read_header(): ", unpacked_data)
 
          block_size    = unpacked_data[0]
          header_size   = unpacked_data[1]
@@ -186,23 +245,53 @@ class Database:
               pt_last, pt_del, table_name, created_time, updated_time ]
 
 
-   def insert(self):
-      pass
+   def pointer(self, block, register):
+      return struct.pack('HH', block, register)
+
+
+   def punn(self, pointer):
+      return struct.unpack('I', pointer)[0]
+
+
+   def deref(self, pointer_number):
+      return struct.unpack('HH', struct.pack('I', pointer_number))
+
+
+   def last_register_pointer(self):
+      return self.read_header()[3]
+
+
+   def del_register_pointer(self):
+      return self.read_header()[4]
+
+
+   def created_timestamp(self):
+      return self.read_header()[6]
+
+
+   def updated_timestamp(self):
+      return self.read_header()[7]
+
+
+   def insert(self, age, year, education, city, gender):
+      self.write_register(age, year, education, city, gender)
 
    def select(self):
+      pprint(self.read_many_registers())
+
+   def delete(self):
       pass
 
-   def update(self):
-      pass
 
 
 db = Database()
-print("outside:")
-print(db.read_header())
 
+# db.insert(10, 2024, 'eng.' ,  'Rio'    , 'Male')
+# db.insert(20, 2021, 'lang.',  'Sampa'  , 'Female')
+# db.insert(45, 2019, 'bio.' ,  'Vitória', 'Female')
+# db.insert(12, 2018, 'med.' ,  'Rio'    , 'Male')
+# db.insert(75, 1945, 'fis.' ,  'Sampa'  , 'Female')
+# db.insert(25, 1984, 'eng.' ,  'Rio'    , 'Male')
 
-print('write register:')
-db.write_register(23, 2021, 'School', 'Sampa', 'Male')
+table = db.select()
 
-print('outside')
-print(db.read_header())
