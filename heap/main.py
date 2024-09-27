@@ -8,12 +8,12 @@ class Database:
 
    FILENAME         = 'test.bin'
    BLOCK_SIZE       = 4096
-   HEADER_STRUCTURE = f'=H H I I I 64s 64s 64s'
-   TABLE_STRUCTURE  = f'=H I I 9s 9s 6s'
+   HEADER_STRUCTURE = f'=H H I I I I 64s 64s 64s'
+   TABLE_STRUCTURE  = f'=H I I I 9s 9s 6s'
    TABLE_NAME       = 'employee'
    HEADER_SIZE      = struct.calcsize(HEADER_STRUCTURE)
    RECORD_SIZE      = struct.calcsize(TABLE_STRUCTURE)
-
+   DELETED_STRUCT   = f'=H I {RECORD_SIZE - 6}s'
 
    def __init__(self):
       if not os.path.exists(self.FILENAME):
@@ -34,10 +34,11 @@ class Database:
             self.HEADER_STRUCTURE + f'{self.BLOCK_SIZE - self.HEADER_SIZE}s',
           # ---------------------------------- #
             self.BLOCK_SIZE,                   # 4096
-            self.HEADER_SIZE,                  # 208
-            self.RECORD_SIZE,                  # 36
+            self.HEADER_SIZE,                  # 212
+            self.RECORD_SIZE,                  # 38
             self.punn(pt_last_register),       # pointer to first block and first record
             self.punn(pt_del_register),        # pointer to 0, 0 (NULL)
+            0,                                 # SERIAL starts in 1
             table_name.encode('utf-8'),        # Table Name
             timestamp_created.encode('utf-8'), # Timestamps
             timestamp_updated.encode('utf-8'), # Timestamps
@@ -55,13 +56,20 @@ class Database:
          space = self.BLOCK_SIZE - (self.RECORD_SIZE * register)
 
       new_block = block if space >= self.RECORD_SIZE else block + 1
-      new_register = register + 1 if new_block == block else 1
+      if new_block == block:
+         new_register = register + 1
+      else:
+         new_register = 1
 
       return self.pointer(new_block, new_register)
 
 
    def write_block(self):
+      last_pointer = self.last_register_pointer()
+      offset = self.calculate_offset((last_pointer[0], 1))
+
       with open(self.FILENAME, 'ab') as f:
+         f.seek(offset)
          block = struct.pack(
             f'{self.BLOCK_SIZE}s',
             ''.ljust(self.BLOCK_SIZE, '\x00')[:(self.BLOCK_SIZE)].encode('utf-8')
@@ -70,11 +78,13 @@ class Database:
          f.write(block)
 
 
-   def write_header(self, last_pointer = None, del_pointer = None):
+   def write_header(self, last_pointer = None, del_pointer = None, new_serial = None):
+      # the pointers are bytes
       header_data = self.read_header()
 
       put_last_pointer = last_pointer if last_pointer is not None else self.pointer(*header_data[3])
       put_del_pointer  = del_pointer if del_pointer is not None else self.pointer(*header_data[4])
+      put_new_serial   = new_serial if new_serial is not None else self.actual_serial()
 
       table_name        = self.TABLE_NAME.ljust(64, '\x00')[:64]
       timestamp_created = self.created_timestamp().ljust(64, '\x00')[:64]
@@ -89,8 +99,9 @@ class Database:
             self.BLOCK_SIZE,                  
             self.HEADER_SIZE,                 
             self.RECORD_SIZE,                 
-            self.punn(put_last_pointer),          
-            self.punn(put_del_pointer),           
+            self.punn(put_last_pointer),      
+            self.punn(put_del_pointer),       
+            put_new_serial,                   
             table_name.encode('utf-8'),       
             timestamp_created.encode('utf-8'),
             timestamp_updated.encode('utf-8'),
@@ -107,22 +118,36 @@ class Database:
                      city=None, 
                      gender=None,):
 
+      del_pointer = self.del_register_pointer()
       last_pointer = self.last_register_pointer()
-      offset = self.calculate_offset(last_pointer)
+      new_head_deleted = None
+
+      if del_pointer != (0, 0):
+         offset = self.calculate_offset(del_pointer)
+      else:
+         offset = self.calculate_offset(last_pointer)
 
       put_age       = age if age is not None else 0
       put_year      = year if year is not None else 0
       put_education = education.ljust(9, '\x00')[:9] if education is not None else ''.ljust(9, '\x00')[:9]
       put_city      = city.ljust(9, '\x00')[:9] if city is not None else ''.ljust(9, '\x00')[:9]
       put_gender    = gender.ljust(6, '\x00')[:6] if gender is not None else ''.ljust(6, '\x00')[:6]
-
+      NEW_SERIAL    = self.actual_serial() + 1
 
       with open(self.FILENAME, 'rb+') as f:
          f.seek(offset)
 
+         if del_pointer != (0, 0):
+            del_register = f.read(self.RECORD_SIZE)
+            next_pointer_deleted = struct.unpack(self.DELETED_STRUCT, del_register)[1]
+            new_head_deleted = self.deref(next_pointer_deleted)
+
+            f.seek(offset)
+
          register = struct.pack(
             self.TABLE_STRUCTURE,
             0,                   # DELETED MARK
+            NEW_SERIAL,
             put_age,
             put_year,
             put_education.encode('utf-8'),
@@ -132,10 +157,15 @@ class Database:
          f.write(register)
 
       next_register = self.next_register_pointer(last_pointer[0], last_pointer[1])
-      if next_register[0] > last_pointer[0]:
+      if struct.unpack('HH', next_register)[0] > last_pointer[0] and del_pointer == (0, 0):
+         print(struct.unpack('HH', next_register))
          self.write_block()
 
-      self.write_header(last_pointer=next_register)
+      if del_pointer != (0, 0):
+         self.write_header(del_pointer=self.pointer(*new_head_deleted), new_serial=NEW_SERIAL)
+      else:
+         self.write_header(last_pointer=next_register, new_serial=NEW_SERIAL)
+
 
 
    def read_register(self, pointer):
@@ -165,31 +195,14 @@ class Database:
          data[0],
          data[1],
          data[2],
-         data[3].decode('utf-8').rstrip('\x00'),
+         data[3],
          data[4].decode('utf-8').rstrip('\x00'),
          data[5].decode('utf-8').rstrip('\x00'),
+         data[6].decode('utf-8').rstrip('\x00'),
       )
 
 
-   def read_many_registers(self, age=None, year=None, education=None, city=None, gender=None):
-      # comparables = dict()
-
-      # if age != None:
-      #    comparables['age'] = age
-
-      # if year != None:
-      #    comparables['year'] = year
-
-      # if education != None:
-      #    comparables['education'] = education
-
-      # if city != None:
-      #    comparables['city'] = city
-
-      # if gender != None:
-      #    comparables['gender'] = gender
-
-
+   def read_many_registers(self, id=None, year=None):
       pointer = struct.unpack('HH', self.pointer(1, 1))
       first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
@@ -200,22 +213,149 @@ class Database:
          f.seek(first_offset)
 
          while pointer != last_pointer:
+            f.seek(self.calculate_offset(pointer))
             register = f.read(self.RECORD_SIZE)
             data = struct.unpack(self.TABLE_STRUCTURE, register)
+
+            # Next Pointer
+            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+            
             if data[0] == 1:
-               pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
                continue
 
             readable_data = self.readable_out(data)
-
             table.append(readable_data)
-
-            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
 
       return table
 
 
+   def delete_register(self, pointer):
+      # this pointer is a tuple
+      HEAD_DELETED = self.del_register_pointer()
+
+      address_pointer = self.pointer(pointer[0], pointer[1])
+      del_pointer = self.pointer(*self.del_register_pointer())
+
+      offset = self.calculate_offset(pointer)
+
+      with open(self.FILENAME, "rb+") as f:
+         f.seek(offset)
+
+         deletion_record = struct.pack(
+            self.DELETED_STRUCT,
+            1, self.punn(del_pointer),
+            ''.ljust(self.RECORD_SIZE - 6, '\x00')[:(self.RECORD_SIZE - 6)]
+         )
+
+         f.write(deletion_record)
+
+      self.write_header(del_pointer=address_pointer)
+
+
+   def deletion_by_id(self, id):
+      pointer = struct.unpack('HH', self.pointer(1, 1))
+      first_offset = self.calculate_offset(pointer)
+      last_pointer = self.last_register_pointer()
+      del_pointer  = self.pointer(*self.del_register_pointer())
+      deleted = 0
+
+      with open(self.FILENAME, 'rb+') as f:
+         f.seek(first_offset)
+
+         while pointer != last_pointer:
+            register = f.read(self.RECORD_SIZE)
+            data = struct.unpack(self.TABLE_STRUCTURE, register)
+            
+            if data[0] == 1:
+               continue
+
+            if data[1] == id:
+               f.seek(self.calculate_offset(pointer))
+               deletion_record = struct.pack(
+                  self.DELETED_STRUCT,
+                  1, self.punn(del_pointer),
+                  ''.ljust(self.RECORD_SIZE - 6, '\x00')[:(self.RECORD_SIZE - 6)].encode('utf-8')
+               )
+
+               f.write(deletion_record)
+               
+               deleted = 1
+               break
+
+            pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+
+      if deleted == 1:
+         self.write_header(del_pointer=self.pointer(*pointer))
+
+
+   def deletion_by_year(self, year):
+      header_data = self.read_header()
+      pointer = struct.unpack('HH', self.pointer(1, 1))
+      first_offset = self.calculate_offset(pointer)
+      last_pointer = self.last_register_pointer()
+
+      deleted_pointers = self.del_register_pointer()
+
+      with open(self.FILENAME, 'rb+') as f:
+         f.seek(first_offset)
+
+         while pointer != last_pointer:
+            register = f.read(self.RECORD_SIZE)
+            data = struct.unpack(self.TABLE_STRUCTURE, register)
+            
+            if data[0] == 1:
+               continue
+
+            if data[3] == year:
+               f.seek(self.calculate_offset(pointer))
+
+               deletion_record = struct.pack(
+                  self.DELETED_STRUCT,
+                  1, self.punn(self.pointer(*deleted_pointers)),
+                  ''.ljust(self.RECORD_SIZE - 6, '\x00')[:(self.RECORD_SIZE - 6)].encode('utf-8')
+               )
+
+               deleted_pointers = pointer
+
+               f.write(deletion_record)
+
+               put_last_pointer  = self.pointer(*header_data[3])
+               put_del_pointer   = self.pointer(*pointer)                # Only change
+               put_new_serial    = self.actual_serial()
+               table_name        = self.TABLE_NAME.ljust(64, '\x00')[:64]
+               timestamp_created = header_data[7].ljust(64, '\x00')[:64]
+               timestamp_updated = header_data[8].ljust(64, '\x00')[:64]
+
+               f.seek(0)
+
+               header = struct.pack(
+                  self.HEADER_STRUCTURE,
+                # ----------------------------------
+                  self.BLOCK_SIZE,                  
+                  self.HEADER_SIZE,                 
+                  self.RECORD_SIZE,                 
+                  self.punn(put_last_pointer),      
+                  self.punn(put_del_pointer),       
+                  put_new_serial,                   
+                  table_name.encode('utf-8'),       
+                  timestamp_created.encode('utf-8'),
+                  timestamp_updated.encode('utf-8'),
+                # ----------------------------------
+               )
+
+               f.write(header)
+
+               next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+               off = self.calculate_offset(next_pointer)
+
+               f.seek(off)
+
+            pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+
+
+
    def calculate_offset(self, pointer, null=False):
+      # this pointer is a tuple
       block = pointer[0] - 1
       register = pointer[1] - 1
 
@@ -237,23 +377,27 @@ class Database:
          register_size = unpacked_data[2]
          pt_last       = self.deref(unpacked_data[3])
          pt_del        = self.deref(unpacked_data[4])
-         table_name    = unpacked_data[5].decode('utf-8').rstrip('\x00')
-         created_time  = unpacked_data[6].decode('utf-8').rstrip('\x00')
-         updated_time  = unpacked_data[7].decode('utf-8').rstrip('\x00')
+         SERIAL        = unpacked_data[5]
+         table_name    = unpacked_data[6].decode('utf-8').rstrip('\x00')
+         created_time  = unpacked_data[7].decode('utf-8').rstrip('\x00')
+         updated_time  = unpacked_data[8].decode('utf-8').rstrip('\x00')
 
       return [ block_size, header_size, register_size, 
-              pt_last, pt_del, table_name, created_time, updated_time ]
+              pt_last, pt_del, SERIAL, table_name, created_time, updated_time ]
 
 
    def pointer(self, block, register):
+      # returns bytes
       return struct.pack('HH', block, register)
 
 
-   def punn(self, pointer):
+   def punn(self, pointer): 
+      # this pointer is bytes, returns a int
       return struct.unpack('I', pointer)[0]
 
 
    def deref(self, pointer_number):
+      # this pointer is a int, returns a tuple
       return struct.unpack('HH', struct.pack('I', pointer_number))
 
 
@@ -265,19 +409,25 @@ class Database:
       return self.read_header()[4]
 
 
+   def actual_serial(self):
+      return self.read_header()[5]
+
+
    def created_timestamp(self):
-      return self.read_header()[6]
+      return self.read_header()[7]
 
 
    def updated_timestamp(self):
-      return self.read_header()[7]
+      return self.read_header()[8]
 
 
    def insert(self, age, year, education, city, gender):
       self.write_register(age, year, education, city, gender)
 
+
    def select(self):
       pprint(self.read_many_registers())
+
 
    def delete(self):
       pass
@@ -293,5 +443,6 @@ db = Database()
 # db.insert(75, 1945, 'fis.' ,  'Sampa'  , 'Female')
 # db.insert(25, 1984, 'eng.' ,  'Rio'    , 'Male')
 
-table = db.select()
+
+# table = db.select()
 
