@@ -66,9 +66,9 @@ class Database:
 
    def write_block(self):
       last_pointer = self.last_register_pointer()
-      offset = self.calculate_offset((last_pointer[0], 1))
+      offset = self.BLOCK_SIZE * last_pointer[0]
 
-      with open(self.FILENAME, 'ab') as f:
+      with open(self.FILENAME, 'ab+') as f:
          f.seek(offset)
          block = struct.pack(
             f'{self.BLOCK_SIZE}s',
@@ -180,7 +180,7 @@ class Database:
          return data
 
 
-   def compare(self, dt1, dt2):
+   def compare(self, dt1, dt2) -> bool:
       if type(dt2) == str or type(dt2) == int:
          return dt1 == dt2
 
@@ -200,9 +200,68 @@ class Database:
          data[5].decode('utf-8').rstrip('\x00'),
          data[6].decode('utf-8').rstrip('\x00'),
       )
+   
+   def read_by_id(self, id):
+      pointer = struct.unpack('HH', self.pointer(1, 1))
+      first_offset = self.calculate_offset(pointer)
+      last_pointer = self.last_register_pointer()
+
+      table = list()
+
+      with open(self.FILENAME, 'rb') as f:
+         f.seek(first_offset)
+
+         while pointer != last_pointer:
+            f.seek(self.calculate_offset(pointer))
+            register = f.read(self.RECORD_SIZE)
+            data = struct.unpack(self.TABLE_STRUCTURE, register)
+
+            # Next Pointer
+            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+            
+            if data[0] == 1:
+               continue
+
+            if not self.compare(data[1], id):
+               continue
+
+            readable_data = self.readable_out(data)
+            table.append(readable_data)
+
+            if type(id) != set:
+               break
+
+      return table
+   
+
+   def read_by_year(self, year):
+      pointer = struct.unpack('HH', self.pointer(1, 1))
+      first_offset = self.calculate_offset(pointer)
+      last_pointer = self.last_register_pointer()
+
+      table = list()
+
+      with open(self.FILENAME, 'rb') as f:
+         f.seek(first_offset)
+
+         while pointer != last_pointer:
+            f.seek(self.calculate_offset(pointer))
+            register = f.read(self.RECORD_SIZE)
+            data = struct.unpack(self.TABLE_STRUCTURE, register)
+
+            # Next Pointer
+            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+            
+            if data[0] == 1 or not self.compare(data[3], year):
+               continue
+
+            readable_data = self.readable_out(data)
+            table.append(readable_data)
+
+      return table
 
 
-   def read_many_registers(self, id=None, year=None):
+   def read_many_registers(self):
       pointer = struct.unpack('HH', self.pointer(1, 1))
       first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
@@ -229,44 +288,21 @@ class Database:
       return table
 
 
-   def delete_register(self, pointer):
-      # this pointer is a tuple
-      HEAD_DELETED = self.del_register_pointer()
-
-      address_pointer = self.pointer(pointer[0], pointer[1])
-      del_pointer = self.pointer(*self.del_register_pointer())
-
-      offset = self.calculate_offset(pointer)
-
-      with open(self.FILENAME, "rb+") as f:
-         f.seek(offset)
-
-         deletion_record = struct.pack(
-            self.DELETED_STRUCT,
-            1, self.punn(del_pointer),
-            ''.ljust(self.RECORD_SIZE - 6, '\x00')[:(self.RECORD_SIZE - 6)]
-         )
-
-         f.write(deletion_record)
-
-      self.write_header(del_pointer=address_pointer)
-
-
    def deletion_by_id(self, id):
       pointer = struct.unpack('HH', self.pointer(1, 1))
-      first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
       del_pointer  = self.pointer(*self.del_register_pointer())
       deleted = 0
 
       with open(self.FILENAME, 'rb+') as f:
-         f.seek(first_offset)
-
          while pointer != last_pointer:
+            offset = self.calculate_offset(pointer)
+            f.seek(offset)
             register = f.read(self.RECORD_SIZE)
             data = struct.unpack(self.TABLE_STRUCTURE, register)
             
             if data[0] == 1:
+               pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
                continue
 
             if data[1] == id:
@@ -291,19 +327,19 @@ class Database:
    def deletion_by_year(self, year):
       header_data = self.read_header()
       pointer = struct.unpack('HH', self.pointer(1, 1))
-      first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
 
       deleted_pointers = self.del_register_pointer()
 
       with open(self.FILENAME, 'rb+') as f:
-         f.seek(first_offset)
-
          while pointer != last_pointer:
+            offset = self.calculate_offset(pointer)
+            f.seek(offset)
             register = f.read(self.RECORD_SIZE)
             data = struct.unpack(self.TABLE_STRUCTURE, register)
             
             if data[0] == 1:
+               pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
                continue
 
             if data[3] == year:
@@ -425,13 +461,26 @@ class Database:
       self.write_register(age, year, education, city, gender)
 
 
-   def select(self):
-      pprint(self.read_many_registers())
+   def select(self, id=None, year=None):
+      if id == None and year == None:
+         pprint(self.read_many_registers())
+      elif id != None and year == None:
+         pprint(self.read_by_id(id))
+      elif id == None and year != None:
+         pprint(self.read_by_year(year))
+      else:
+         raise NotImplemented
+      
 
-
-   def delete(self):
-      pass
-
+   def delete(self, id=None, year=None):
+      if id == None and year == None:
+         raise KeyError("DELETION must have a key")
+      elif id != None and year == None:
+         self.deletion_by_id(id)
+      elif id == None and year != None:
+         self.deletion_by_year(year)
+      else:
+         raise NotImplemented
 
 
 db = Database()

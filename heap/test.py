@@ -11,7 +11,7 @@ with open('heap/data/Employee.csv', 'r') as data:
 		ls = line.split(',')
 		ls[4] = ls[4].rstrip('\n')
 		
-		if counter == 211:
+		if counter == 198:
 			break
 
 		counter += 1
