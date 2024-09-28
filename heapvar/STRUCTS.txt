@@ -1,0 +1,33 @@
+          All structures defined for this work (only heap var)
+
+ ___________________________________________________________________
+|                          Header Structure:                        |
+|                                                                   |
+|   Block Size:          UNSIGNED SHORT  H       ----     2 bytes   |
+|   Header Size:         UNSIGNED SHORT  H       ----     2 bytes   |
+|   Pt Last Register:    INTEGER         I       ----     4 bytes   |
+|   NEXT SERIAL          INTEGER         I       ----     4 bytes   |
+|   Table Name:          CHAR(64)        64s     ----    64 bytes   |
+|   Timestamp created:   CHAR(64)        64s     ----    64 bytes   |
+|   Timestamp updated:   CHAR(64)        64s     ----    64 bytes   |
+| ----------------------------------------------------------------- |
+|   Total:                                              204 bytes   |
+|___________________________________________________________________|
+|                                                                   |
+|                         Register Structure:                       |
+|  Table Name: employee                                             |
+|                                                                   |
+|  Fields:                                                          |
+|   DELETED MARK         UINT16          H       ----     2 bytes   |
+|   OFFSET1              UINT16          H       ----     2 bytes   |
+|   OFFSET2              UINT16          H       ----     2 bytes   |
+|   OFFSET3              UINT16          H       ----     2 bytes   |
+|   id                   INTEGER         I       ----     4 bytes   |
+|   age                  INTEGER         I       ----     4 bytes   |
+|   year                 INTEGER         I       ----     4 bytes   |
+|   education            VARCHAR         -       ----     - bytes   |
+|   city                 VARCHAR         -       ----     - bytes   |
+|   gender               VARCHAR         -       ----     - bytes   |
+| ----------------------------------------------------------------- |
+|   Total:                                              20+ bytes   |
+|___________________________________________________________________|

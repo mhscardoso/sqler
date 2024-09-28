@@ -4,8 +4,7 @@ from datetime import datetime
 from pprint import pprint
 
 
-class Database:
-
+class DatabaseHeap:
    FILENAME         = 'test.bin'
    BLOCK_SIZE       = 4096
    HEADER_STRUCTURE = f'=H H I I I I 64s 64s 64s'
@@ -49,7 +48,7 @@ class Database:
          f.write(header_block)
 
 
-   def next_register_pointer(self, block, register):
+   def next_register_pointer(self, block: int, register: int):
       if block == 1:
          space = self.BLOCK_SIZE - self.HEADER_SIZE - (self.RECORD_SIZE * register)
       else:
@@ -118,7 +117,7 @@ class Database:
                      city=None, 
                      gender=None,):
 
-      del_pointer = self.del_register_pointer()
+      del_pointer = self.del_register_pointer() # (bloco, registro)
       last_pointer = self.last_register_pointer()
       new_head_deleted = None
 
@@ -219,10 +218,7 @@ class Database:
             # Next Pointer
             pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
             
-            if data[0] == 1:
-               continue
-
-            if not self.compare(data[1], id):
+            if data[0] == 1 or not self.compare(data[1], id):
                continue
 
             readable_data = self.readable_out(data)
@@ -483,7 +479,7 @@ class Database:
          raise NotImplemented
 
 
-db = Database()
+db = DatabaseHeap()
 
 # db.insert(10, 2024, 'eng.' ,  'Rio'    , 'Male')
 # db.insert(20, 2021, 'lang.',  'Sampa'  , 'Female')
