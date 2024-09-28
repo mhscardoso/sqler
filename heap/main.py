@@ -37,7 +37,7 @@ class DatabaseHeap:
             self.RECORD_SIZE,                  # 38
             self.punn(pt_last_register),       # pointer to first block and first record
             self.punn(pt_del_register),        # pointer to 0, 0 (NULL)
-            0,                                 # SERIAL starts in 1
+            0,                                 # SERIAL starts in 0
             table_name.encode('utf-8'),        # Table Name
             timestamp_created.encode('utf-8'), # Timestamps
             timestamp_updated.encode('utf-8'), # Timestamps
