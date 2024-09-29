@@ -60,10 +60,10 @@ class DatabaseVar:
     
     FILENAME       = 'heapvar.bin'
     BLOCK_SIZE     = 4096
-    HEADER_STRUCT  = f'=H H I I 64s 64s 64s'
+    HEADER_STRUCT  = f'=H H H I I 64s 64s 64s'
     HEADER_SIZE    = struct.calcsize(HEADER_STRUCT)
     TABLE_NAME     = 'employee'
-    DELETED_STRUCT = '=H 18s'
+
 
     def __init__(self):
         if not os.path.exists(self.FILENAME):
@@ -84,6 +84,7 @@ class DatabaseVar:
                 # ---------------------------------- #
                 self.BLOCK_SIZE,                     # 4096
                 self.HEADER_SIZE,                    # 204
+                0,                                   # Deleted Bytes (starts with 0)
                 self.punn(pt_last_register),         # pointer to first block and first record
                 0,                                   # SERIAL starts in 0
                 table_name.encode('utf-8'),          # Table Name
@@ -147,6 +148,7 @@ class DatabaseVar:
     def delete_by_id(self, id: int):
         pointer = (1, self.HEADER_SIZE)
         last_pointer  = self.last_register_pointer()
+        deleted_struct_size = 0
 
         with open(self.FILENAME, 'rb+') as f:
             while pointer != last_pointer:
@@ -160,28 +162,156 @@ class DatabaseVar:
 
                 offset3 = unpack_start[3]
 
-                if unpack_start[0] == 1 or not self.compare(unpack_start[4], id):
+                if unpack_start[0] == 1 or not unpack_start[4] == id:
                     pointer = self.next_pointer(pointer, offset3)
                     continue
 
-                THIS_DELETED_STRUCT = self.DELETED_STRUCT + f'={offset3 - RecordVar.FIXED_RECORD_SIZE}s'
+                THIS_DELETED_STRUCT = RecordVar.FIXED_RECORD + f'{offset3 - RecordVar.FIXED_RECORD_SIZE}s'
 
                 f.seek(self.calculate_offset(pointer))
 
                 deleted_buffer = struct.pack(
                     THIS_DELETED_STRUCT,
                     1,
-                    ''.ljust(18, '\x00')[:18].encode('utf-8'),
+                    unpack_start[1],
+                    unpack_start[2],
+                    unpack_start[3],
+                    0,
+                    0,
+                    0,
                     ''.ljust(offset3 - RecordVar.FIXED_RECORD_SIZE, '\x00')[:(offset3 - RecordVar.FIXED_RECORD_SIZE)].encode('utf-8')
                 )
 
                 f.write(deleted_buffer)
+
+                deleted_struct_size = struct.calcsize(THIS_DELETED_STRUCT)
     
                 break
+        
+        if deleted_struct_size != 0:
+            self.write_header(deleted_bytes=deleted_struct_size)
 
 
     def delete_by_year(self, year: int):
-        pass
+        pointer = (1, self.HEADER_SIZE)
+        last_pointer  = self.last_register_pointer()
+        deleted_struct_size = 0
+
+        with open(self.FILENAME, 'rb+') as f:
+            while pointer != last_pointer:
+                f.seek(self.calculate_offset(pointer))
+
+                start = f.read(RecordVar.FIXED_RECORD_SIZE)
+                unpack_start = struct.unpack(
+                    RecordVar.FIXED_RECORD,
+                    start,
+                )
+
+                offset3 = unpack_start[3]
+
+                if unpack_start[0] == 1 or not unpack_start[6] == year:
+                    pointer = self.next_pointer(pointer, offset3)
+                    continue
+
+                THIS_DELETED_STRUCT = RecordVar.FIXED_RECORD + f'{offset3 - RecordVar.FIXED_RECORD_SIZE}s'
+
+                f.seek(self.calculate_offset(pointer))
+
+                deleted_buffer = struct.pack(
+                    THIS_DELETED_STRUCT,
+                    1,
+                    unpack_start[1],
+                    unpack_start[2],
+                    unpack_start[3],
+                    0,
+                    0,
+                    0,
+                    ''.ljust(offset3 - RecordVar.FIXED_RECORD_SIZE, '\x00')[:(offset3 - RecordVar.FIXED_RECORD_SIZE)].encode('utf-8')
+                )
+
+                f.write(deleted_buffer)
+
+                deleted_struct_size += struct.calcsize(THIS_DELETED_STRUCT)
+    
+        
+        if deleted_struct_size != 0:
+            self.write_header(deleted_bytes=deleted_struct_size)
+    
+
+    def read_by_id(self, id: int):
+        pointer = (1, self.HEADER_SIZE)
+        last_pointer  = self.last_register_pointer()
+
+        table = list()
+
+        with open(self.FILENAME, 'rb') as f:
+            while pointer != last_pointer:
+                f.seek(self.calculate_offset(pointer))
+
+                start = f.read(RecordVar.FIXED_RECORD_SIZE)
+                unpack_start = struct.unpack(
+                    RecordVar.FIXED_RECORD,
+                    start,
+                )
+
+                offset1 = unpack_start[1]
+                offset2 = unpack_start[2]
+                offset3 = unpack_start[3]
+                
+                pointer = self.next_pointer(pointer, offset3)
+
+                if unpack_start[0] == 1 or not self.compare(unpack_start[4], id):
+                    continue
+
+                VAR_RECORD = self.var_struct(offset1, offset2, offset3)
+                VAR_SIZE   = struct.calcsize(VAR_RECORD)
+
+                end = f.read(VAR_SIZE)
+                unpack_end = struct.unpack(VAR_RECORD, end)
+
+                readable_end = list(map(lambda word: word.decode('utf-8'), unpack_end))
+
+                table.append([*unpack_start[4:], *readable_end])
+        
+        return table
+
+
+    def read_by_year(self, year: int):
+        pointer = (1, self.HEADER_SIZE)
+        last_pointer  = self.last_register_pointer()
+
+        table = list()
+
+        with open(self.FILENAME, 'rb') as f:
+            while pointer != last_pointer:
+                f.seek(self.calculate_offset(pointer))
+
+                start = f.read(RecordVar.FIXED_RECORD_SIZE)
+                unpack_start = struct.unpack(
+                    RecordVar.FIXED_RECORD,
+                    start,
+                )
+
+                offset1 = unpack_start[1]
+                offset2 = unpack_start[2]
+                offset3 = unpack_start[3]
+                
+                pointer = self.next_pointer(pointer, offset3)
+
+                if unpack_start[0] == 1 or not self.compare(unpack_start[6], year):
+                    continue
+
+                VAR_RECORD = self.var_struct(offset1, offset2, offset3)
+                VAR_SIZE   = struct.calcsize(VAR_RECORD)
+
+                end = f.read(VAR_SIZE)
+                unpack_end = struct.unpack(VAR_RECORD, end)
+
+                readable_end = list(map(lambda word: word.decode('utf-8'), unpack_end))
+
+                table.append([*unpack_start[4:], *readable_end])
+        
+        return table
     
 
     def read_sequence(self):
@@ -217,7 +347,7 @@ class DatabaseVar:
 
                 readable_end = list(map(lambda word: word.decode('utf-8'), unpack_end))
 
-                table.append([*unpack_start, *readable_end])
+                table.append([*unpack_start[4:], *readable_end])
         
         return table
 
@@ -226,12 +356,18 @@ class DatabaseVar:
         self, 
         last_pointer: tuple | None = None, 
         new_serial: int | None = None,
+        deleted_bytes: int | None = None,
     ):
-        put_last_pointer  = self.pointer(*last_pointer) if last_pointer is not None else self.pointer(self.last_register_pointer())
+        put_last_pointer  = self.pointer(*last_pointer) if last_pointer is not None else self.pointer(*self.last_register_pointer())
         put_new_serial    = new_serial if new_serial is not None else self.actual_serial()
         table_name        = self.TABLE_NAME.ljust(64, '\x00')[:64]
         timestamp_created = self.created_timestamp().ljust(64, '\x00')[:64]
         timestamp_updated = str(datetime.now()).ljust(64, '\x00')[:64]
+        put_deleted_bytes = deleted_bytes + self.deleted_bytes() if deleted_bytes is not None else self.deleted_bytes()
+
+        if put_deleted_bytes >= 2 ** 16: # 65536
+            self.compress()
+            return
 
         with open(self.FILENAME, 'rb+') as f:
             f.seek(0)
@@ -241,6 +377,7 @@ class DatabaseVar:
                 # ----------------------------------
                 self.BLOCK_SIZE,
                 self.HEADER_SIZE,
+                put_deleted_bytes,
                 self.punn(put_last_pointer),
                 put_new_serial,
                 table_name.encode('utf-8'),
@@ -261,14 +398,15 @@ class DatabaseVar:
 
             block_size    = unpacked_data[0]
             header_size   = unpacked_data[1]
-            pt_last       = self.deref(unpacked_data[2])
-            SERIAL        = unpacked_data[3]
-            table_name    = unpacked_data[4].decode('utf-8').rstrip('\x00')
-            created_time  = unpacked_data[5].decode('utf-8').rstrip('\x00')
-            updated_time  = unpacked_data[6].decode('utf-8').rstrip('\x00')
+            deleted_bytes = unpacked_data[2]
+            pt_last       = self.deref(unpacked_data[3])
+            SERIAL        = unpacked_data[4]
+            table_name    = unpacked_data[5].decode('utf-8').rstrip('\x00')
+            created_time  = unpacked_data[6].decode('utf-8').rstrip('\x00')
+            updated_time  = unpacked_data[7].decode('utf-8').rstrip('\x00')
 
-        return [ block_size, header_size, pt_last, SERIAL,
-                 table_name, created_time, updated_time ]
+        return [ block_size, header_size, deleted_bytes, pt_last,
+                 SERIAL, table_name, created_time, updated_time ]
 
 
     def calculate_offset(self, pointer: tuple) -> int:
@@ -287,6 +425,22 @@ class DatabaseVar:
         next_register_byte = (pointer[1] + register_size) % self.BLOCK_SIZE
 
         return (next_block, next_register_byte)
+
+
+    def compress(self):
+        print("Compressing File...:")
+
+        # Arquivo Antigo
+        data = self.read_sequence()
+        temp_filename = 'uncompressed.bin'
+        os.rename(self.FILENAME, temp_filename)
+
+        # Arquivo Novo
+        self.create_file()
+        for row in data:
+            self.write_record(*row[1:])
+        
+        os.remove(temp_filename)
 
 
     def var_struct(self, offset1: int, offset2: int, offset3: int):
@@ -314,30 +468,54 @@ class DatabaseVar:
         return struct.unpack('HH', struct.pack('I', pointer_number))
     
 
-    def last_register_pointer(self) -> tuple:
+    def deleted_bytes(self) -> int:
         return self.read_header()[2]
     
 
-    def actual_serial(self) -> int:
+    def last_register_pointer(self) -> tuple:
         return self.read_header()[3]
     
 
-    def created_timestamp(self) -> str:
+    def actual_serial(self) -> int:
+        return self.read_header()[4]
+
+
+    def tablename(self) -> str:
         return self.read_header()[5]
+    
+
+    def created_timestamp(self) -> str:
+        return self.read_header()[6]
 
 
     def updated_timestamp(self) -> str:
-        return self.read_header()[6]
+        return self.read_header()[7]
     
 
     def insert(self, age: int, year: int, education: str, city: str, gender: str):
         self.write_record(age, year, education, city, gender)
 
-    def delete(self):
-        pass
 
-    def select(self):
-        pprint(self.read_sequence())
+    def delete(self, id=None, year=None):
+        if id == None and year == None:
+         raise KeyError("DELETION must have a key")
+        elif id != None and year == None:
+            self.delete_by_id(id)
+        elif id == None and year != None:
+            self.delete_by_year(year)
+        else:
+            raise NotImplemented
+
+
+    def select(self, id=None, year=None):
+        if id == None and year == None:
+            pprint(self.read_sequence())
+        elif id != None and year == None:
+            pprint(self.read_by_id(id))
+        elif id == None and year != None:
+            pprint(self.read_by_year(year))
+        else:
+            raise NotImplemented
 
 
 db = DatabaseVar()
