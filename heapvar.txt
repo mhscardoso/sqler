@@ -1,0 +1,109 @@
+Loading Data:
+Total blocks: 47
+Mean time for all insertions: 6.43051749220618e-05
+
+Total blocks: 93
+Mean time for all insertions: 5.750150903947323e-05
+
+Total blocks: 140
+Mean time for all insertions: 6.052296366098233e-05
+
+Total blocks: 186
+Mean time for all insertions: 5.605757274910529e-05
+
+Total blocks: 233
+Mean time for all insertions: 6.643592888581837e-05
+
+Total blocks: 279
+Mean time for all insertions: 6.0925246975946086e-05
+
+Total blocks: 325
+Mean time for all insertions: 6.1021577714977023e-05
+
+Total blocks: 372
+Mean time for all insertions: 6.235196670869999e-05
+
+Total blocks: 418
+Mean time for all insertions: 5.6603019938990556e-05
+
+Total blocks: 464
+Mean time for all insertions: 6.027439961042964e-05
+
+Selecting All
+    1º Read: 0.10877180099487305s ---- 464 blocks
+    2º Read: 0.11059975624084473s ---- 464 blocks
+    3º Read: 0.1072683334350586s ---- 464 blocks
+    4º Read: 0.11030793190002441s ---- 464 blocks
+    5º Read: 0.10526537895202637s ---- 464 blocks
+    6º Read: 0.10857272148132324s ---- 464 blocks
+    7º Read: 0.10562539100646973s ---- 464 blocks
+    8º Read: 0.1082921028137207s ---- 464 blocks
+    9º Read: 0.10425710678100586s ---- 464 blocks
+    10º Read: 0.10821366310119629s ---- 464 blocks
+-------------------------------
+    Mean Time: 0.10771741867065429
+    Mean Accessed Blocks: 464.0
+
+
+
+Selecting by id
+    1º Read: 0.00011157989501953125s ---- 1 blocks
+    2º Read: 6.413459777832031e-05s ---- 1 blocks
+    3º Read: 7.843971252441406e-05s ---- 1 blocks
+    4º Read: 0.00036716461181640625s ---- 5 blocks
+    5º Read: 0.0006701946258544922s ---- 10 blocks
+    6º Read: 0.006086826324462891s ---- 85 blocks
+    7º Read: 0.014779806137084961s ---- 202 blocks
+    8º Read: 0.034332275390625s ---- 464 blocks
+    9º Read: 0.034378767013549805s ---- 464 blocks
+    10º Read: 0.03466796875s ---- 464 blocks
+    11º Read: 0.03466176986694336s ---- 464 blocks
+    12º Read: 0.03496217727661133s ---- 464 blocks
+    13º Read: 0.0347142219543457s ---- 464 blocks
+    14º Read: 0.03496980667114258s ---- 464 blocks
+    15º Read: 0.03484082221984863s ---- 464 blocks
+-------------------------------
+    Mean Time: 0.019979063669840494
+    Mean Accessed Blocks: 267.8
+
+
+
+Selecting by ids
+-------------------------------
+    Total Time: 0.036637306213378906
+    Accessed Blocks: 464
+
+
+
+Deleting series by id:
+    Record 0: 0.00015306472778320312s --- 1 blocks accessed.
+    Record 1: 0.00010132789611816406s --- 1 blocks accessed.
+    Record 2: 0.00011897087097167969s --- 1 blocks accessed.
+    Record 3: 0.0003674030303955078s --- 5 blocks accessed.
+    Record 4: 0.0006392002105712891s --- 10 blocks accessed.
+    Record 5: 0.005431652069091797s --- 85 blocks accessed.
+    Record 6: 0.013155221939086914s --- 202 blocks accessed.
+-------------------------------
+
+    Deletions by id mean time: 0.0028524058205740793
+    Mean accessed blocks: 43.57142857142857
+
+
+
+Deleting by year - Many registers erased
+Compressing File...:
+-------------------------------
+    Total Time: 2.2791969776153564
+    Accessed Blocks: 1282
+
+
+
+Inserting Again
+Total blocks: 401
+    Mean time: 5.66716812104275e-05
+Total blocks: 447
+    Mean time: 6.0451228004257165e-05
+Total blocks: 493
+    Mean time: 5.696277425746725e-05
+Total blocks: 540
+    Mean time: 5.6415533676163856e-05

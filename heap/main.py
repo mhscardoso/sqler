@@ -64,11 +64,7 @@ class DatabaseHeap:
 
 
    def write_block(self):
-      last_pointer = self.last_register_pointer()
-      offset = self.BLOCK_SIZE * last_pointer[0]
-
       with open(self.FILENAME, 'ab+') as f:
-         f.seek(offset)
          block = struct.pack(
             f'{self.BLOCK_SIZE}s',
             ''.ljust(self.BLOCK_SIZE, '\x00')[:(self.BLOCK_SIZE)].encode('utf-8')
@@ -133,6 +129,10 @@ class DatabaseHeap:
       put_gender    = gender.ljust(6, '\x00')[:6] if gender is not None else ''.ljust(6, '\x00')[:6]
       NEW_SERIAL    = self.actual_serial() + 1
 
+      next_register = self.next_register_pointer(*last_pointer)
+      if struct.unpack('HH', next_register)[0] > last_pointer[0] and del_pointer == (0, 0):
+         self.write_block()
+
       with open(self.FILENAME, 'rb+') as f:
          f.seek(offset)
 
@@ -155,10 +155,6 @@ class DatabaseHeap:
 
          f.write(register)
 
-      next_register = self.next_register_pointer(last_pointer[0], last_pointer[1])
-      if struct.unpack('HH', next_register)[0] > last_pointer[0] and del_pointer == (0, 0):
-         print(struct.unpack('HH', next_register))
-         self.write_block()
 
       if del_pointer != (0, 0):
          self.write_header(del_pointer=self.pointer(*new_head_deleted), new_serial=NEW_SERIAL)
@@ -204,6 +200,7 @@ class DatabaseHeap:
       pointer = struct.unpack('HH', self.pointer(1, 1))
       first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
+      accessed_blocks = 1
 
       table = list()
 
@@ -216,7 +213,11 @@ class DatabaseHeap:
             data = struct.unpack(self.TABLE_STRUCTURE, register)
 
             # Next Pointer
-            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+            next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            if next_pointer[0] > pointer[0]:
+               accessed_blocks += 1
+
+            pointer = next_pointer
             
             if data[0] == 1 or not self.compare(data[1], id):
                continue
@@ -227,13 +228,14 @@ class DatabaseHeap:
             if type(id) != set:
                break
 
-      return table
+      return (table, accessed_blocks)
    
 
    def read_by_year(self, year):
       pointer = struct.unpack('HH', self.pointer(1, 1))
       first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
+      accessed_blocks = 1
 
       table = list()
 
@@ -246,7 +248,11 @@ class DatabaseHeap:
             data = struct.unpack(self.TABLE_STRUCTURE, register)
 
             # Next Pointer
-            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+            next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            if next_pointer[0] > pointer[0]:
+               accessed_blocks += 1
+
+            pointer = next_pointer
             
             if data[0] == 1 or not self.compare(data[3], year):
                continue
@@ -254,13 +260,14 @@ class DatabaseHeap:
             readable_data = self.readable_out(data)
             table.append(readable_data)
 
-      return table
+      return (table, accessed_blocks)
 
 
    def read_many_registers(self):
       pointer = struct.unpack('HH', self.pointer(1, 1))
       first_offset = self.calculate_offset(pointer)
       last_pointer = self.last_register_pointer()
+      accessed_blocks = 1
 
       table = list()
 
@@ -273,7 +280,11 @@ class DatabaseHeap:
             data = struct.unpack(self.TABLE_STRUCTURE, register)
 
             # Next Pointer
-            pointer = struct.unpack('HH', self.next_register_pointer(pointer[0], pointer[1]))
+            next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            if next_pointer[0] > pointer[0]:
+               accessed_blocks += 1
+
+            pointer = next_pointer
             
             if data[0] == 1:
                continue
@@ -281,13 +292,14 @@ class DatabaseHeap:
             readable_data = self.readable_out(data)
             table.append(readable_data)
 
-      return table
+      return (table, accessed_blocks)
 
 
    def deletion_by_id(self, id):
       pointer = struct.unpack('HH', self.pointer(1, 1))
       last_pointer = self.last_register_pointer()
       del_pointer  = self.pointer(*self.del_register_pointer())
+      accessed_blocks = 1
       deleted = 0
 
       with open(self.FILENAME, 'rb+') as f:
@@ -298,7 +310,11 @@ class DatabaseHeap:
             data = struct.unpack(self.TABLE_STRUCTURE, register)
             
             if data[0] == 1:
-               pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+               next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+               if next_pointer[0] > pointer[0]:
+                  accessed_blocks += 1
+
+               pointer = next_pointer
                continue
 
             if data[1] == id:
@@ -314,16 +330,23 @@ class DatabaseHeap:
                deleted = 1
                break
 
-            pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            if next_pointer[0] > pointer[0]:
+               accessed_blocks += 1
+
+            pointer = next_pointer
 
       if deleted == 1:
          self.write_header(del_pointer=self.pointer(*pointer))
+      
+      return accessed_blocks
 
 
    def deletion_by_year(self, year):
       header_data = self.read_header()
       pointer = struct.unpack('HH', self.pointer(1, 1))
       last_pointer = self.last_register_pointer()
+      accessed_blocks = 1
 
       deleted_pointers = self.del_register_pointer()
 
@@ -335,7 +358,11 @@ class DatabaseHeap:
             data = struct.unpack(self.TABLE_STRUCTURE, register)
             
             if data[0] == 1:
-               pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+               next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+               if next_pointer[0] > pointer[0]:
+                  accessed_blocks += 1
+
+               pointer = next_pointer
                continue
 
             if data[3] == year:
@@ -382,8 +409,13 @@ class DatabaseHeap:
 
                f.seek(off)
 
-            pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            next_pointer = struct.unpack('HH', self.next_register_pointer(*pointer))
+            if next_pointer[0] > pointer[0]:
+               accessed_blocks += 1
 
+            pointer = next_pointer
+         
+         return accessed_blocks
 
 
    def calculate_offset(self, pointer, null=False):
@@ -459,11 +491,20 @@ class DatabaseHeap:
 
    def select(self, id=None, year=None):
       if id == None and year == None:
-         pprint(self.read_many_registers())
+         data, accessed_blocks = self.read_many_registers()
+         # pprint(data)
+         return accessed_blocks
+      
       elif id != None and year == None:
-         pprint(self.read_by_id(id))
+         data, accessed_blocks = self.read_by_id(id)
+         # pprint(data)
+         return accessed_blocks
+      
       elif id == None and year != None:
-         pprint(self.read_by_year(year))
+         data, accessed_blocks = self.read_by_year(year)
+         # pprint(data)
+         return accessed_blocks
+      
       else:
          raise NotImplemented
       
@@ -472,22 +513,9 @@ class DatabaseHeap:
       if id == None and year == None:
          raise KeyError("DELETION must have a key")
       elif id != None and year == None:
-         self.deletion_by_id(id)
+         return self.deletion_by_id(id)
       elif id == None and year != None:
-         self.deletion_by_year(year)
+         return self.deletion_by_year(year)
       else:
          raise NotImplemented
-
-
-db = DatabaseHeap()
-
-# db.insert(10, 2024, 'eng.' ,  'Rio'    , 'Male')
-# db.insert(20, 2021, 'lang.',  'Sampa'  , 'Female')
-# db.insert(45, 2019, 'bio.' ,  'Vitória', 'Female')
-# db.insert(12, 2018, 'med.' ,  'Rio'    , 'Male')
-# db.insert(75, 1945, 'fis.' ,  'Sampa'  , 'Female')
-# db.insert(25, 1984, 'eng.' ,  'Rio'    , 'Male')
-
-
-# table = db.select()
 

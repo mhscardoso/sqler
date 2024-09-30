@@ -145,10 +145,12 @@ class DatabaseVar:
         return False
     
 
-    def delete_by_id(self, id: int):
+    def delete_by_id(self, id: int) -> int:
         pointer = (1, self.HEADER_SIZE)
         last_pointer  = self.last_register_pointer()
         deleted_struct_size = 0
+
+        accessed_blocks = 1
 
         with open(self.FILENAME, 'rb+') as f:
             while pointer != last_pointer:
@@ -163,7 +165,11 @@ class DatabaseVar:
                 offset3 = unpack_start[3]
 
                 if unpack_start[0] == 1 or not unpack_start[4] == id:
-                    pointer = self.next_pointer(pointer, offset3)
+                    next_pointer = self.next_pointer(pointer, offset3)
+                    if next_pointer[0] > pointer[0]:
+                        accessed_blocks += 1
+                    pointer = next_pointer
+
                     continue
 
                 THIS_DELETED_STRUCT = RecordVar.FIXED_RECORD + f'{offset3 - RecordVar.FIXED_RECORD_SIZE}s'
@@ -189,13 +195,19 @@ class DatabaseVar:
                 break
         
         if deleted_struct_size != 0:
-            self.write_header(deleted_bytes=deleted_struct_size)
+            compressed, blocks = self.write_header(deleted_bytes=deleted_struct_size)
+
+            if compressed == 1:
+                accessed_blocks += self.last_register_pointer()[0] + blocks
+    
+        return accessed_blocks
 
 
-    def delete_by_year(self, year: int):
+    def delete_by_year(self, year: int) -> int:
         pointer = (1, self.HEADER_SIZE)
         last_pointer  = self.last_register_pointer()
         deleted_struct_size = 0
+        accessed_blocks = 1
 
         with open(self.FILENAME, 'rb+') as f:
             while pointer != last_pointer:
@@ -210,7 +222,11 @@ class DatabaseVar:
                 offset3 = unpack_start[3]
 
                 if unpack_start[0] == 1 or not unpack_start[6] == year:
-                    pointer = self.next_pointer(pointer, offset3)
+                    next_pointer = self.next_pointer(pointer, offset3)
+                    if next_pointer[0] > pointer[0]:
+                        accessed_blocks += 1
+                    pointer = next_pointer
+
                     continue
 
                 THIS_DELETED_STRUCT = RecordVar.FIXED_RECORD + f'{offset3 - RecordVar.FIXED_RECORD_SIZE}s'
@@ -235,12 +251,18 @@ class DatabaseVar:
     
         
         if deleted_struct_size != 0:
-            self.write_header(deleted_bytes=deleted_struct_size)
+            compressed, blocks = self.write_header(deleted_bytes=deleted_struct_size)
+
+            if compressed == 1:
+                accessed_blocks += self.last_register_pointer()[0] + blocks
+    
+        return accessed_blocks
     
 
-    def read_by_id(self, id: int):
+    def read_by_id(self, id: int | set):
         pointer = (1, self.HEADER_SIZE)
         last_pointer  = self.last_register_pointer()
+        accessed_blocks = 1
 
         table = list()
 
@@ -258,7 +280,10 @@ class DatabaseVar:
                 offset2 = unpack_start[2]
                 offset3 = unpack_start[3]
                 
-                pointer = self.next_pointer(pointer, offset3)
+                next_pointer = self.next_pointer(pointer, offset3)
+                if next_pointer[0] > pointer[0]:
+                    accessed_blocks += 1
+                pointer = next_pointer
 
                 if unpack_start[0] == 1 or not self.compare(unpack_start[4], id):
                     continue
@@ -272,13 +297,22 @@ class DatabaseVar:
                 readable_end = list(map(lambda word: word.decode('utf-8'), unpack_end))
 
                 table.append([*unpack_start[4:], *readable_end])
+
+                if type(id) == int:
+                    break
+                else:
+                    id.remove(unpack_start[4])
+                
+                if type(id) == set and len(id) == 0:
+                    break
         
-        return table
+        return (table, accessed_blocks)
 
 
     def read_by_year(self, year: int):
         pointer = (1, self.HEADER_SIZE)
         last_pointer  = self.last_register_pointer()
+        accessed_blocks = 1
 
         table = list()
 
@@ -296,7 +330,10 @@ class DatabaseVar:
                 offset2 = unpack_start[2]
                 offset3 = unpack_start[3]
                 
-                pointer = self.next_pointer(pointer, offset3)
+                next_pointer = self.next_pointer(pointer, offset3)
+                if next_pointer[0] > pointer[0]:
+                    accessed_blocks += 1
+                pointer = next_pointer
 
                 if unpack_start[0] == 1 or not self.compare(unpack_start[6], year):
                     continue
@@ -311,12 +348,13 @@ class DatabaseVar:
 
                 table.append([*unpack_start[4:], *readable_end])
         
-        return table
+        return (table, accessed_blocks)
     
 
     def read_sequence(self):
         pointer = (1, self.HEADER_SIZE)
         last_pointer  = self.last_register_pointer()
+        accessed_blocks = 1
 
         table = list()
 
@@ -334,7 +372,10 @@ class DatabaseVar:
                 offset2 = unpack_start[2]
                 offset3 = unpack_start[3]
                 
-                pointer = self.next_pointer(pointer, offset3)
+                next_pointer = self.next_pointer(pointer, offset3)
+                if next_pointer[0] > pointer[0]:
+                    accessed_blocks += 1
+                pointer = next_pointer
 
                 if unpack_start[0] == 1:
                     continue
@@ -349,7 +390,7 @@ class DatabaseVar:
 
                 table.append([*unpack_start[4:], *readable_end])
         
-        return table
+        return (table, accessed_blocks)
 
     
     def write_header(
@@ -357,7 +398,7 @@ class DatabaseVar:
         last_pointer: tuple | None = None, 
         new_serial: int | None = None,
         deleted_bytes: int | None = None,
-    ):
+    ) -> tuple:
         put_last_pointer  = self.pointer(*last_pointer) if last_pointer is not None else self.pointer(*self.last_register_pointer())
         put_new_serial    = new_serial if new_serial is not None else self.actual_serial()
         table_name        = self.TABLE_NAME.ljust(64, '\x00')[:64]
@@ -366,8 +407,8 @@ class DatabaseVar:
         put_deleted_bytes = deleted_bytes + self.deleted_bytes() if deleted_bytes is not None else self.deleted_bytes()
 
         if put_deleted_bytes >= 2 ** 16: # 65536
-            self.compress()
-            return
+            blocks = self.compress()
+            return (1, blocks)
 
         with open(self.FILENAME, 'rb+') as f:
             f.seek(0)
@@ -387,6 +428,8 @@ class DatabaseVar:
             )
 
             f.write(header)
+        
+        return (0, 0)
 
 
     def read_header(self):
@@ -427,11 +470,11 @@ class DatabaseVar:
         return (next_block, next_register_byte)
 
 
-    def compress(self):
+    def compress(self) -> int:
         print("Compressing File...:")
 
         # Arquivo Antigo
-        data = self.read_sequence()
+        data, blocks = self.read_sequence()
         temp_filename = 'uncompressed.bin'
         os.rename(self.FILENAME, temp_filename)
 
@@ -441,6 +484,8 @@ class DatabaseVar:
             self.write_record(*row[1:])
         
         os.remove(temp_filename)
+
+        return blocks
 
 
     def var_struct(self, offset1: int, offset2: int, offset3: int):
@@ -500,22 +545,25 @@ class DatabaseVar:
         if id == None and year == None:
          raise KeyError("DELETION must have a key")
         elif id != None and year == None:
-            self.delete_by_id(id)
+            return self.delete_by_id(id)
         elif id == None and year != None:
-            self.delete_by_year(year)
+            return self.delete_by_year(year)
         else:
             raise NotImplemented
 
 
     def select(self, id=None, year=None):
         if id == None and year == None:
-            pprint(self.read_sequence())
+            data, blocks = self.read_sequence()
         elif id != None and year == None:
-            pprint(self.read_by_id(id))
+            data, blocks = self.read_by_id(id)
         elif id == None and year != None:
-            pprint(self.read_by_year(year))
+            data, blocks = self.read_by_year(year)
         else:
             raise NotImplemented
+
+        # pprint(data)
+        return blocks
 
 
 db = DatabaseVar()
